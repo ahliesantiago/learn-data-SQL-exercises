@@ -153,3 +153,146 @@ SELECT poc_first_name,
       ) sub
     GROUP BY 1
     ORDER BY 2 DESC
+
+
+--ADVANCED EXERCISE #1: For the West region, which month (list the full name)
+--had the highest percent of poster orders by count during 2015?
+--my answer: November
+SELECT acctor.month,
+      SUM(acctor.poster_ct)
+  FROM (
+        SELECT reps.id AS rep, regions.name AS region
+          FROM sqlchallenge1.sales_reps reps
+            JOIN sqlchallenge1.region regions
+              ON regions.id = reps.region_id
+          WHERE regions.name = 'West'
+        ) regrep
+    JOIN (
+          SELECT EXTRACT('month' FROM orders.occurred_at) AS month,
+                accounts.sales_rep_id AS rep,
+                SUM(orders.poster_qty) AS poster_ct
+            FROM sqlchallenge1.orders orders
+              JOIN sqlchallenge1.accounts accounts
+                ON accounts.id = orders.account_id
+                WHERE EXTRACT('year' FROM orders.occurred_at) = 2015
+                GROUP BY 1, 2
+          ) acctor
+      ON regrep.rep = acctor.rep
+      GROUP BY 1
+      ORDER BY 2 DESC
+
+--ADVANCED EXERCISE #2: Starting from the time of their first order,
+--which sales rep reached $100,000 in total sales the fastest in terms of time?
+--List the id for this sales rep.
+--my answer: 321900 and correct BUT script is wonky. revisit and try to figure out better approach!!
+SELECT rep,
+      last_date - first_date AS road_to100k,
+      last_date, first_date, runningct,
+      MAX(runningct) OVER (PARTITION BY rep) AS hundredk
+  FROM (
+        SELECT accounts.sales_rep_id AS rep,
+              orders.total_amt_usd AS total_amt,
+              orders.occurred_at AS time,
+              SUM(orders.total_amt_usd) OVER
+                (PARTITION BY accounts.sales_rep_id ORDER BY orders.occurred_at)
+                AS runningct,
+              MIN(orders.occurred_at) OVER
+                (PARTITION BY accounts.sales_rep_id ORDER BY orders.occurred_at)
+                AS first_date,
+              MAX(orders.occurred_at) OVER
+                (PARTITION BY accounts.sales_rep_id ORDER BY orders.occurred_at)
+                AS last_date
+          FROM sqlchallenge1.orders orders
+            JOIN sqlchallenge1.accounts accounts
+              ON orders.account_id = accounts.id
+        ) sub
+  WHERE runningct <= 100000
+    AND first_date != last_date
+  GROUP BY 1, 3, 4, 5
+  ORDER BY 2
+
+--ADVANCED EXERCISE #3: For sales rep with at least 2 orders,
+--what is the name of the sales rep who went the longest time
+--between their first and second order?
+--my answer: Eugena Esser
+--self-note: find a way to get rid of the nulls post-op. join?
+
+SELECT reps.name,
+       time - LAG(time, 1) OVER
+        (PARTITION BY sub.rep ORDER BY sub.ranking) AS difference,
+        sub.rep, sub.ranking, sub.time
+  FROM (
+        SELECT accounts.sales_rep_id AS rep,
+              orders.id AS orders,
+              orders.occurred_at AS time,
+              DENSE_RANK() OVER
+                (PARTITION BY accounts.sales_rep_id ORDER BY orders.occurred_at)
+                  AS ranking
+          FROM sqlchallenge1.orders orders
+            FULL JOIN sqlchallenge1.accounts accounts
+              ON orders.account_id = accounts.id
+        ) sub
+    JOIN sqlchallenge1.sales_reps reps
+      ON sub.rep = reps.id
+  WHERE sub.ranking < 3
+  GROUP BY 1, 3, 4, 5
+  ORDER BY 2 DESC
+
+--ADVANCED EXERCISE #4: How many sales reps had at least 9 orders
+--before surpassing $10k cumulative sales?
+--my answer: 2
+SELECT rep,
+      COUNT(running_amt) AS orders_before_10k
+  FROM (
+        SELECT accounts.sales_rep_id AS rep,
+              SUM(total_amt_usd) OVER
+                (PARTITION BY accounts.sales_rep_id ORDER BY occurred_at)
+                AS running_amt
+          FROM sqlchallenge1.orders orders
+            JOIN sqlchallenge1.accounts accounts
+              ON orders.account_id = accounts.id
+        ) sub
+    WHERE running_amt < 10000
+    GROUP BY 1
+    ORDER BY 2 DESC
+
+--more goal-specific (count how many reps)
+SELECT COUNT(CASE WHEN counted.orders_before_10k >= 9 THEN 1 END)
+        AS reps_with_9orders_before10k
+  FROM (
+        SELECT rep,
+              COUNT(running_amt) AS orders_before_10k
+          FROM (
+                SELECT accounts.sales_rep_id AS rep,
+                        SUM(total_amt_usd) OVER
+                          (PARTITION BY accounts.sales_rep_id ORDER BY occurred_at)
+                          AS running_amt
+                    FROM sqlchallenge1.orders orders
+                      JOIN sqlchallenge1.accounts accounts
+                        ON orders.account_id = accounts.id
+                  ) sub
+            WHERE running_amt < 10000
+            GROUP BY 1
+            ORDER BY 2 DESC
+        ) counted
+
+--ADVANCED EXERCISE #5: What two-calendar-day period had the largest dollar
+--amount of purchases? Enter the first day in YYYY-MM-DD format.)
+--my answer: IDK. revisit!
+
+/*
+SELECT *
+  FROM (
+        SELECT order_date, running_amt,
+              SUM(order_interval) OVER (ORDER BY order_date) AS fixed_interval
+          FROM (
+                SELECT occurred_at AS order_date,
+                      SUM(total_amt_usd) OVER (ORDER BY occurred_at) AS running_amt,
+                      occurred_at - LAG(occurred_at, 1) OVER
+                        (ORDER BY occurred_at) AS order_interval,
+                      EXTRACT('day' FROM occurred_at) AS order_day
+                FROM sqlchallenge1.orders
+              ) sub
+        ) fixed
+    WHERE fixed_interval < '3 days'
+*/
